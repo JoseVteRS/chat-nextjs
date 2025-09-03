@@ -13,9 +13,9 @@ export interface User {
 }
 
 // Almacenar mensajes y usuarios en memoria (se perderán al reiniciar)
-let messages: Message[] = [];
+const messages: Message[] = [];
 let users: User[] = [];
-let clients: { id: string; controller: ReadableStreamDefaultController; username?: string }[] = [];
+const clients: { id: string; controller: ReadableStreamDefaultController; username?: string }[] = [];
 
 export async function GET() {
   const stream = new ReadableStream({
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Error procesando solicitud' }, { status: 500 });
   }
 }
@@ -104,7 +104,7 @@ function handleMessage(data: { message: string; username: string; clientId: stri
   broadcast({ type: 'message', message });
 }
 
-function broadcast(data: any) {
+function broadcast(data: { type: string; message?: Message; user?: User }) {
   const message = `data: ${JSON.stringify(data)}\n\n`;
   clients.forEach(client => {
     try {
