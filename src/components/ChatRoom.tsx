@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Message, User } from '../hooks/useSocket';
+import PrivateChat from './PrivateChat';
+import NotificationBubble from './NotificationBubble';
 
 interface ChatRoomProps {
   messages: Message[];
@@ -9,9 +11,33 @@ interface ChatRoomProps {
   username: string;
   isConnected: boolean;
   onSendMessage: (message: string) => void;
+  currentPrivateChat: User | null;
+  setCurrentPrivateChat: (user: User | null) => void;
+  onSendPrivateMessage: (message: string, recipient: User) => void;
+  getPrivateMessagesWithUser: (userId: string) => Message[];
+  currentUser?: User;
+  getTotalUnreadPrivateMessages: () => number;
+  getUnreadCountForUser: (username: string) => number;
+  markPrivateMessagesAsRead: (username: string) => void;
+  hasNewMessage: boolean;
 }
 
-export default function ChatRoom({ messages, users, username, isConnected, onSendMessage }: ChatRoomProps) {
+export default function ChatRoom({ 
+  messages, 
+  users, 
+  username, 
+  isConnected, 
+  onSendMessage,
+  currentPrivateChat,
+  setCurrentPrivateChat,
+  onSendPrivateMessage,
+  getPrivateMessagesWithUser,
+  currentUser,
+  getTotalUnreadPrivateMessages,
+  getUnreadCountForUser,
+  markPrivateMessagesAsRead,
+  hasNewMessage
+}: ChatRoomProps) {
   const [newMessage, setNewMessage] = useState('');
   const [showUsers, setShowUsers] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -49,6 +75,23 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
     });
   };
 
+  const getUserColor = (messageUsername: string): string => {
+    if (messageUsername === username) return '#3b82f6'; // Azul para el usuario actual
+    const user = users.find(u => u.username === messageUsername);
+    return user?.color || '#6b7280'; // Gris por defecto
+  };
+
+  const handleUserClick = (user: User) => {
+    setCurrentPrivateChat(user);
+    setShowUsers(false);
+    // Marcar mensajes como leídos cuando se abre el chat
+    markPrivateMessagesAsRead(user.username);
+  };
+
+  // Contar usuarios: los conectados más el usuario actual si no está ya en la lista
+  const currentUserInList = users.find(u => u.username === username);
+  const totalUsers = currentUserInList ? users.length : users.length + 1;
+
   return (
     <div className="h-screen bg-gray-900 flex flex-col relative">
       {/* Header */}
@@ -60,7 +103,7 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
             </svg>
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-white">ChatApp</h1>
+            <h1 className="text-lg font-semibold text-white">Chat Global</h1>
             <div className="flex items-center">
               <div className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
               <span className="text-xs text-gray-400">
@@ -72,14 +115,21 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
         
         <button
           onClick={() => setShowUsers(!showUsers)}
-          className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors active:scale-95"
+          className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors active:scale-95 relative"
         >
           <div className="flex items-center space-x-1">
             <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
             </svg>
-            <span className="text-sm text-gray-300">{users.length + 1}</span>
+            <span className="text-sm text-gray-300">{totalUsers}</span>
           </div>
+          
+          {/* Indicador de mensajes privados no leídos */}
+          <NotificationBubble 
+            show={getTotalUnreadPrivateMessages() > 0} 
+            count={getTotalUnreadPrivateMessages()}
+            animate={hasNewMessage}
+          />
         </button>
       </div>
 
@@ -95,7 +145,7 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
         >
           <div className="w-80 max-w-[80vw] bg-gray-800 h-full p-4 shadow-xl">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-white">Usuarios conectados</h3>
+              <h3 className="text-lg font-semibold text-white">Usuarios conectados ({totalUsers})</h3>
               <button
                 onClick={() => setShowUsers(false)}
                 className="p-1 rounded-lg hover:bg-gray-700 active:scale-95"
@@ -107,30 +157,86 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
             </div>
             
             <div className="space-y-3">
-              {/* Usuario actual */}
-              <div className="flex items-center space-x-3 p-3 bg-blue-600 bg-opacity-20 rounded-xl">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                  <span className="text-white text-sm font-medium">
+              {/* Usuario actual - solo mostrar si no está en la lista de usuarios */}
+              {!currentUserInList && (
+                <div className="flex items-center space-x-3 p-3 bg-blue-600 bg-opacity-20 rounded-xl">
+                  <div 
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium"
+                    style={{ backgroundColor: currentUser?.color || '#3b82f6' }}
+                  >
                     {username.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-white font-medium">{username}</span>
-                  <p className="text-xs text-blue-400">Tú</p>
-                </div>
-              </div>
-              
-              {/* Otros usuarios */}
-              {users.map((user) => (
-                <div key={user.id} className="flex items-center space-x-3 p-3 rounded-xl hover:bg-gray-700">
-                  <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-medium">
-                      {user.username.charAt(0).toUpperCase()}
-                    </span>
                   </div>
-                  <span className="text-gray-300">{user.username}</span>
+                  <div>
+                    <span className="text-white font-medium">{username}</span>
+                    <p className="text-xs text-blue-400">Tú</p>
+                  </div>
                 </div>
-              ))}
+              )}
+              
+              {/* Todos los usuarios */}
+              {users.map((user) => {
+                const isCurrentUser = user.username === username;
+                const unreadCount = getUnreadCountForUser(user.username);
+                
+                return (
+                  <div 
+                    key={user.id} 
+                    className={`flex items-center space-x-3 p-3 rounded-xl transition-colors relative ${
+                      isCurrentUser 
+                        ? 'bg-blue-600 bg-opacity-20' 
+                        : 'hover:bg-gray-700 cursor-pointer group'
+                    }`}
+                    onClick={isCurrentUser ? undefined : () => handleUserClick(user)}
+                  >
+                    <div 
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium relative"
+                      style={{ backgroundColor: user.color }}
+                    >
+                      {user.username.charAt(0).toUpperCase()}
+                      
+                      {/* Indicador de mensajes no leídos por usuario */}
+                      {!isCurrentUser && (
+                        <NotificationBubble 
+                          show={unreadCount > 0} 
+                          count={unreadCount}
+                          animate={hasNewMessage && unreadCount > 0}
+                        />
+                      )}
+                    </div>
+                    
+                    <div className="flex-1">
+                      <span className={`${isCurrentUser ? 'text-white font-medium' : 'text-gray-300 group-hover:text-white'} transition-colors`}>
+                        {user.username}
+                      </span>
+                      <p className={`text-xs ${
+                        isCurrentUser 
+                          ? 'text-blue-400' 
+                          : unreadCount > 0
+                            ? 'text-red-400 font-medium'
+                            : 'text-gray-500 group-hover:text-gray-400'
+                      }`}>
+                        {isCurrentUser 
+                          ? 'Tú' 
+                          : unreadCount > 0 
+                            ? `${unreadCount} mensaje${unreadCount > 1 ? 's' : ''} nuevo${unreadCount > 1 ? 's' : ''}`
+                            : 'Click para chat privado'
+                        }
+                      </p>
+                    </div>
+                    
+                    {!isCurrentUser && (
+                      <div className="flex items-center">
+                        {unreadCount > 0 && (
+                          <div className="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
+                        )}
+                        <svg className="w-4 h-4 text-gray-500 group-hover:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -156,9 +262,15 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
             >
               <div className={`max-w-[85%] ${message.username === username ? 'order-2' : 'order-1'}`}>
                 {message.username !== username && (
-                  <p className="text-xs font-medium mb-1 text-gray-400 px-1">
-                    {message.username}
-                  </p>
+                  <div className="flex items-center space-x-2 mb-1 px-1">
+                    <div 
+                      className="w-4 h-4 rounded-full"
+                      style={{ backgroundColor: getUserColor(message.username) }}
+                    ></div>
+                    <p className="text-xs font-medium text-gray-400">
+                      {message.username}
+                    </p>
+                  </div>
                 )}
                 <div
                   className={`px-4 py-3 rounded-2xl shadow-sm ${
@@ -215,6 +327,19 @@ export default function ChatRoom({ messages, users, username, isConnected, onSen
           </button>
         </form>
       </div>
+
+      {/* Private Chat Modal */}
+      {currentPrivateChat && (
+        <PrivateChat
+          messages={getPrivateMessagesWithUser(currentPrivateChat.id)}
+          recipient={currentPrivateChat}
+          currentUsername={username}
+          onSendMessage={onSendPrivateMessage}
+          onClose={() => setCurrentPrivateChat(null)}
+        />
+      )}
+
+
     </div>
   );
 } 
